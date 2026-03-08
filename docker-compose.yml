@@ -5,52 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: echo-executor-backend
     ports:
-      - "8001:8000"
-    environment:
-      - DEBUG=true
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=echo_executor
-      - DB_USERNAME=postgres
-      - DB_PASSWORD=postgres
-      - REDIS_URL=redis://redis:6379
+      - "8000:8000"
     volumes:
       - .:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    depends_on:
-      - postgres
-      - redis
-    networks:
-      - echo-executor-network
-
-  postgres:
-    image: postgres:15-alpine
-    container_name: echo-executor-postgres
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=echo_executor
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - echo-executor-network
-
-  redis:
-    image: redis:7-alpine
-    container_name: echo-executor-redis
-    ports:
-      - "6380:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - echo-executor-network
-
-networks:
-  echo-executor-network:
-    driver: bridge
-
-volumes:
-  postgres_data:
-  redis_data:
