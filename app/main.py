@@ -12,32 +12,22 @@ from app.api.v1.router import router as api_v1_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown events."""
-    # Startup
     print(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     print(f"Debug mode: {settings.DEBUG}")
 
-    # TODO: Initialize infrastructure connections
-    # - Database connection pool
-    # - Redis connection
-    # - Firebase Admin SDK
+    from app.infrastructure.mcp.client import tavily_mcp_client
+    from app.infrastructure.mcp.registry import mcp_registry
 
-    # TODO: Initialize domain services
-    # - Auth service
-    # - Task service
-    # - Device service
-    # - Notification service
+    await tavily_mcp_client.connect()
+    await mcp_registry.load()
 
     print("Application startup complete")
 
     yield
 
-    # Shutdown
     print("Shutting down application...")
 
-    # TODO: Close infrastructure connections
-    # - Close database connections
-    # - Close Redis connections
-    # - Close HTTP clients
+    await tavily_mcp_client.disconnect()
 
     print("Application shutdown complete")
 

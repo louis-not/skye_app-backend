@@ -59,5 +59,13 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: list[str] = ["*"]
 
+    # LLM (OpenAI-compatible endpoint)
+    OPENAI_BASE_URL: str = "http://localhost:11434/v1"
+    OPENAI_API_KEY: str = "-"
+    OPENAI_MODEL: str = "qwen3:latest"
+
+    # Tavily MCP
+    TAVILY_API_KEY: str = ""
+
 
 settings = Settings()
