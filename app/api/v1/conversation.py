@@ -17,8 +17,8 @@ async def _event_stream(request: ChatRequest) -> AsyncGenerator[str, None]:
     # Lazy import to avoid circular deps; registry is populated at app startup
     from app.infrastructure.mcp.registry import mcp_registry
 
-    # 1. System message with injected driving context
-    system_content = build_system_message(request.context)
+    # 1. System message
+    system_content = build_system_message()
     system_msg = LLMMessage(role="system", content=system_content)
 
     # 2. Conversation history from Android (includes the latest user message)

@@ -1,5 +1,5 @@
 from mcp import ClientSession
-from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 
 from app.core.config import settings
 
@@ -8,7 +8,7 @@ class TavilyMCPClient:
     """
     Manages the connection to the remote Tavily MCP server.
 
-    Uses SSE (HTTP) transport — no local subprocess or Node.js needed.
+    Uses Streamable HTTP transport (MCP 2025-03-26 spec) — no local subprocess needed.
     The session is opened once at app startup and closed on shutdown.
     """
 
@@ -17,13 +17,16 @@ class TavilyMCPClient:
         self._exit_stack = None
 
     async def connect(self) -> None:
-        """Open a persistent SSE session to the Tavily MCP server."""
+        """Open a persistent Streamable HTTP session to the Tavily MCP server."""
         from contextlib import AsyncExitStack
 
         url = f"https://mcp.tavily.com/mcp/?tavilyApiKey={settings.TAVILY_API_KEY}"
 
         self._exit_stack = AsyncExitStack()
-        read, write = await self._exit_stack.enter_async_context(sse_client(url))
+        # streamablehttp_client yields (read, write, get_session_id)
+        read, write, _ = await self._exit_stack.enter_async_context(
+            streamablehttp_client(url)
+        )
         self._session = await self._exit_stack.enter_async_context(
             ClientSession(read, write)
         )

@@ -9,31 +9,6 @@ class Message(BaseModel):
     content: str
 
 
-class SafetyState(BaseModel):
-    """On-device safety signals from the Safety MCP."""
-
-    fatigue_level: Optional[Literal["low", "medium", "high"]] = None
-    eyes_closed: Optional[bool] = None
-    sudden_braking: Optional[bool] = None
-    aggressive_acceleration: Optional[bool] = None
-
-
-class NavigationState(BaseModel):
-    """Navigation context from the Navigation MCP."""
-
-    current_road: Optional[str] = None
-    next_turn: Optional[str] = None
-    eta_minutes: Optional[int] = None
-    speed_kmh: Optional[float] = None
-
-
-class DrivingContext(BaseModel):
-    """Aggregated driving context sent by the Android app each request."""
-
-    safety_state: Optional[SafetyState] = None
-    navigation_state: Optional[NavigationState] = None
-
-
 class ChatRequest(BaseModel):
     """Request body for the conversation chat endpoint."""
 
@@ -41,10 +16,6 @@ class ChatRequest(BaseModel):
     messages: list[Message] = Field(
         ...,
         description="Full conversation history. Android owns and sends this on every request.",
-    )
-    context: Optional[DrivingContext] = Field(
-        default=None,
-        description="Current driving context from on-device MCPs.",
     )
 
 
