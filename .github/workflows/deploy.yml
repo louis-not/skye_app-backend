@@ -2,8 +2,14 @@ name: Deploy Skye Backend
 
 on:
   push:
-    branches: [main]
-
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual deployment'
+        required: false
+        default: 'Manual trigger'
+        
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -16,8 +22,8 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            cd /home/louiswdj/skye-backend
-            git pull origin main
+            cd /home/louiswdj/skye/skye_app-backend
+            git pull origin dev
             docker compose down
             docker compose up -d --build
             echo "Deployment complete!"
