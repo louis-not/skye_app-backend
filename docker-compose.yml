@@ -1,9 +1,9 @@
 services:
-  echo-executor-backend:
+  skye-backend:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: echo-executor-backend
+    container_name: skye-backend
     ports:
       - "8000:8000"
     volumes:
