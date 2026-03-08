@@ -1,4 +1,4 @@
-from typing import Any, Literal, Optional
+from typing import Literal
 from pydantic import BaseModel, Field
 
 
@@ -17,25 +17,3 @@ class ChatRequest(BaseModel):
         ...,
         description="Full conversation history. Android owns and sends this on every request.",
     )
-
-
-class LLMMessage(BaseModel):
-    """Internal message format sent to the LLM endpoint."""
-
-    role: str
-    content: Optional[str] = None
-    tool_calls: Optional[list[dict[str, Any]]] = None
-    tool_call_id: Optional[str] = None
-    name: Optional[str] = None
-
-    def to_dict(self) -> dict[str, Any]:
-        result: dict[str, Any] = {"role": self.role}
-        if self.content is not None:
-            result["content"] = self.content
-        if self.tool_calls is not None:
-            result["tool_calls"] = self.tool_calls
-        if self.tool_call_id is not None:
-            result["tool_call_id"] = self.tool_call_id
-        if self.name is not None:
-            result["name"] = self.name
-        return result

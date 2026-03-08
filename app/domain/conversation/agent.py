@@ -1,82 +1,43 @@
 import json
+import re
 from typing import AsyncGenerator, Any
 
 import httpx
 
 from app.core.config import settings
-from app.domain.conversation.schemas import LLMMessage
 
 
-# Maximum tool-call iterations before forcing a final answer
 MAX_REACT_ITERATIONS = 10
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def _strip_thinking(text: str) -> str:
+    """Remove <think>...</think> blocks produced by reasoning models."""
+    return _THINK_RE.sub("", text).strip()
 
 
 async def run(
-    messages: list[LLMMessage],
+    messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
     tool_executor: Any,
 ) -> AsyncGenerator[str, None]:
     """
-    ReAct agent loop.
+    ReAct agent loop — single streaming pass per iteration.
 
-    Yields text tokens as they stream from the LLM once a final answer is reached.
-    Tool calls are executed internally (no streaming during reasoning steps).
-
-    Args:
-        messages:       Full conversation (system + history + user turn).
-        tools:          OpenAI-format tool definitions to pass to the LLM.
-        tool_executor:  Callable (name, args) -> str for executing tool calls.
-                        In practice this is the MCP registry's call_tool method.
+    Streams content tokens to the caller as they arrive.
+    Tool calls are detected from the stream, executed, then fed back for the next
+    reasoning step. Thinking tokens (<think>...</think>) are filtered out.
     """
-    working_messages = [m.to_dict() for m in messages]
+    working_messages = list(messages)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        for _ in range(MAX_REACT_ITERATIONS):
-            # ── Reasoning step: non-streaming call so we can inspect tool_calls ──
-            response = await client.post(
-                f"{settings.OPENAI_BASE_URL}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": settings.OPENAI_MODEL,
-                    "messages": working_messages,
-                    "tools": tools if tools else None,
-                    "stream": False,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for iteration in range(MAX_REACT_ITERATIONS):
+            # Buffers for this iteration
+            collected_content = ""
+            tool_calls_buf: dict[int, dict[str, Any]] = {}
+            is_tool_call = False
 
-            choice = data["choices"][0]
-            finish_reason = choice["finish_reason"]
-            assistant_msg = choice["message"]
-
-            # Append assistant turn to working context
-            working_messages.append(assistant_msg)
-
-            # ── Tool call branch ──
-            if finish_reason == "tool_calls" or assistant_msg.get("tool_calls"):
-                for tool_call in assistant_msg["tool_calls"]:
-                    tool_name = tool_call["function"]["name"]
-                    tool_args = json.loads(tool_call["function"]["arguments"])
-                    tool_call_id = tool_call["id"]
-
-                    result = await tool_executor(tool_name, tool_args)
-
-                    working_messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "content": str(result),
-                    })
-                # Loop back for the next reasoning step
-                continue
-
-            # ── Final answer branch: stream it ──
-            final_content = assistant_msg.get("content") or ""
-
-            # Re-request with streaming enabled for the final response
             async with client.stream(
                 "POST",
                 f"{settings.OPENAI_BASE_URL}/chat/completions",
@@ -86,31 +47,81 @@ async def run(
                 },
                 json={
                     "model": settings.OPENAI_MODEL,
-                    "messages": working_messages[:-1],  # exclude the last assistant turn
+                    "messages": working_messages,
+                    "tools": tools if tools else None,
                     "stream": True,
                 },
-            ) as stream_response:
-                stream_response.raise_for_status()
-                async for line in stream_response.aiter_lines():
+            ) as resp:
+                resp.raise_for_status()
+
+                async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
-                    chunk = line[len("data: "):]
-                    if chunk.strip() == "[DONE]":
-                        return
+                    raw = line[len("data: "):]
+                    if raw.strip() == "[DONE]":
+                        break
+
                     try:
-                        chunk_data = json.loads(chunk)
-                        token = (
-                            chunk_data["choices"][0]
-                            .get("delta", {})
-                            .get("content") or ""
-                        )
-                        if token:
-                            yield token
-                    except (json.JSONDecodeError, KeyError, IndexError):
+                        data = json.loads(raw)
+                    except json.JSONDecodeError:
                         continue
+
+                    choice = data["choices"][0]
+                    delta = choice.get("delta", {})
+
+                    # ── Tool call delta ──
+                    for tc in delta.get("tool_calls", []):
+                        is_tool_call = True
+                        idx = tc["index"]
+                        if idx not in tool_calls_buf:
+                            tool_calls_buf[idx] = {
+                                "id": "",
+                                "type": "function",
+                                "function": {"name": "", "arguments": ""},
+                            }
+                        if tc.get("id"):
+                            tool_calls_buf[idx]["id"] = tc["id"]
+                        fn = tc.get("function", {})
+                        tool_calls_buf[idx]["function"]["name"] += fn.get("name", "")
+                        tool_calls_buf[idx]["function"]["arguments"] += fn.get("arguments", "")
+
+                    # ── Content delta ──
+                    token = delta.get("content") or ""
+                    if token:
+                        collected_content += token
+                        # Only yield content tokens when this is NOT a tool-call turn
+                        if not is_tool_call:
+                            yield token
+
+            # ── After stream ends: decide what happened ──
+            if is_tool_call:
+                tool_calls_list = [
+                    tool_calls_buf[i] for i in sorted(tool_calls_buf)
+                ]
+                working_messages.append({
+                    "role": "assistant",
+                    "content": collected_content or None,
+                    "tool_calls": tool_calls_list,
+                })
+
+                for tc in tool_calls_list:
+                    name = tc["function"]["name"]
+                    args = json.loads(tc["function"]["arguments"])
+                    call_id = tc["id"]
+                    result = await tool_executor(name, args)
+                    working_messages.append({
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": str(result),
+                    })
+                # Continue ReAct loop
+                continue
+
+            # Final answer was already streamed token-by-token above.
+            # Nothing more to do.
             return
 
-        # Safety valve: if max iterations hit, yield whatever the last content was
+        # Max iterations reached — yield last buffered content as fallback
         last = working_messages[-1]
         if last.get("role") == "assistant" and last.get("content"):
-            yield last["content"]
+            yield _strip_thinking(last["content"])
